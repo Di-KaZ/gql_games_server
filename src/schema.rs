@@ -58,10 +58,76 @@ struct Game {
     studios: Vec<Studio>,
     platform: Vec<String>,
 }
+
+fn get_editors_from_game_id(connection: &Connection, id: &String) -> Vec<Editor> {
+    let mut statement = match connection.prepare(
+        "
+        SELECT * FROM editor 
+        inner join game_editor_link gel on gel.game_id = ?1 and gel.editor_id = id
+        ",
+    ) {
+        Ok(stmt) => stmt,
+        Err(e) => panic!("{}", e),
+    };
+
+    let rows = statement
+        .query_map(params![id], |row| {
+            Ok(Editor {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                games: Vec::new(),
+            })
+        })
+        // TODO: understand more rust error management for now it will do got no time
+        .unwrap();
+
+    let mut editors: Vec<Editor> = Vec::new();
+
+    for row in rows {
+        if let Ok(editor) = row {
+            editors.push(editor)
+        }
+    }
+
+    editors
+}
+
+fn get_studios_from_game_id(connection: &Connection, id: &String) -> Vec<Studio> {
+    let mut statement = match connection.prepare(
+        "
+        SELECT * FROM studio 
+        inner join game_studio_link gsl on gsl.game_id = ?1 and gsl.studio_id = id
+        ",
+    ) {
+        Ok(stmt) => stmt,
+        Err(e) => panic!("{}", e),
+    };
+
+    let rows = statement
+        .query_map(params![id], |row| {
+            Ok(Studio {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                games: Vec::new(),
+            })
+        })
+        // TODO: understand more rust error management for now it will do got no time
+        .unwrap();
+
+    let mut studios: Vec<Studio> = Vec::new();
+
+    for row in rows {
+        if let Ok(editor) = row {
+            studios.push(editor)
+        }
+    }
+
+    studios
+}
+
 fn game(executor: &&Executor<'_, Context>, id: String) -> FieldResult<Option<Game>> {
     let connection = &executor.context().connection;
 
-    log::info!("{}", id);
     let mut statement = match connection.prepare("SELECT * FROM game where id = ?1 limit 1") {
         Ok(stmt) => stmt,
         Err(e) => panic!("{}", e),
@@ -73,8 +139,8 @@ fn game(executor: &&Executor<'_, Context>, id: String) -> FieldResult<Option<Gam
                 id: row.get(0)?,
                 name: row.get(1)?,
                 genres: Vec::new(),
-                studios: Vec::new(),
-                editors: Vec::new(),
+                studios: get_studios_from_game_id(connection, &id),
+                editors: get_editors_from_game_id(connection, &id),
                 platform: Vec::new(),
                 publication_date: row.get(2)?,
             })
@@ -239,12 +305,13 @@ fn games(
     };
 
     let rows = statement.query_map(params![studio, 20, current_page * 20], |row| {
+        let id: String = row.get(0)?;
         Ok(Game {
-            id: row.get(0)?,
+            id: id.to_owned(),
             name: row.get(1)?,
             genres: Vec::new(),
-            studios: Vec::new(),
-            editors: Vec::new(),
+            studios: get_studios_from_game_id(connection, &id),
+            editors: get_editors_from_game_id(connection, &id),
             platform: Vec::new(),
             publication_date: row.get(2)?,
         })
