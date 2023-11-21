@@ -58,15 +58,6 @@ struct Game {
     studios: Vec<Studio>,
     platform: Vec<String>,
 }
-
-pub struct Context {
-    pub connection: Connection,
-}
-
-impl juniper::Context for Context {}
-
-pub struct Query;
-
 fn game(executor: &&Executor<'_, Context>, id: String) -> FieldResult<Option<Game>> {
     let connection = &executor.context().connection;
 
@@ -90,6 +81,138 @@ fn game(executor: &&Executor<'_, Context>, id: String) -> FieldResult<Option<Gam
         })
         .and_then(|mut games| games.next().transpose())
         .unwrap_or(None))
+}
+
+fn studio(executor: &&Executor<'_, Context>, id: String) -> FieldResult<Option<Studio>> {
+    let connection = &executor.context().connection;
+
+    log::info!("{}", id);
+    let mut statement = match connection.prepare("SELECT * FROM studio where id = ?1 limit 1") {
+        Ok(stmt) => stmt,
+        Err(e) => panic!("{}", e),
+    };
+
+    Ok(statement
+        .query_map(params![id], |row| {
+            Ok(Studio {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                games: Vec::new(),
+            })
+        })
+        .and_then(|mut games| games.next().transpose())
+        .unwrap_or(None))
+}
+
+fn editor(executor: &&Executor<'_, Context>, id: String) -> FieldResult<Option<Editor>> {
+    let connection = &executor.context().connection;
+
+    log::info!("{}", id);
+    let mut statement = match connection.prepare("SELECT * FROM editor where id = ?1 limit 1") {
+        Ok(stmt) => stmt,
+        Err(e) => panic!("{}", e),
+    };
+
+    Ok(statement
+        .query_map(params![id], |row| {
+            Ok(Editor {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                games: Vec::new(),
+            })
+        })
+        .and_then(|mut games| games.next().transpose())
+        .unwrap_or(None))
+}
+
+fn studios(executor: &&Executor<'_, Context>, page: Option<i32>) -> FieldResult<Studios> {
+    let current_page = page.unwrap_or(0);
+
+    let connection = &executor.context().connection;
+
+    let mut statement = match connection.prepare(
+        "
+    SELECT * FROM studio 
+    LIMIT ?1 OFFSET ?2;",
+    ) {
+        Ok(stmt) => stmt,
+        Err(e) => panic!("{}", e),
+    };
+
+    let rows = statement.query_map(params![20, current_page * 20], |row| {
+        Ok(Studio {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            games: Vec::new(),
+        })
+    })?;
+
+    let mut editors: Vec<Studio> = Vec::new();
+
+    for row in rows {
+        if let Ok(editor) = row {
+            editors.push(editor)
+        }
+    }
+
+    Ok(Studios {
+        infos: Infos {
+            count: editors.len() as i32,
+            pages: current_page,
+            next_page: current_page + if editors.len() == 20 { 1 } else { 0 },
+            previous_page: if current_page == 0 {
+                0
+            } else {
+                current_page - 1
+            },
+        },
+        results: editors,
+    })
+}
+
+fn editors(executor: &&Executor<'_, Context>, page: Option<i32>) -> FieldResult<Editors> {
+    let current_page = page.unwrap_or(0);
+
+    let connection = &executor.context().connection;
+
+    let mut statement = match connection.prepare(
+        "
+    SELECT * FROM editor
+    LIMIT ?1 OFFSET ?2;",
+    ) {
+        Ok(stmt) => stmt,
+        Err(e) => panic!("{}", e),
+    };
+
+    let rows = statement.query_map(params![20, current_page * 20], |row| {
+        Ok(Editor {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            games: Vec::new(),
+        })
+    })?;
+
+    let mut editors: Vec<Editor> = Vec::new();
+
+    for row in rows {
+        if let Ok(editor) = row {
+            editors.push(editor)
+        }
+    }
+
+    Ok(Editors {
+        infos: Infos {
+            count: editors.len() as i32,
+            pages: current_page,
+            next_page: current_page + if editors.len() == 20 { 1 } else { 0 },
+            previous_page: if current_page == 0 {
+                0
+            } else {
+                current_page - 1
+            },
+        },
+        results: editors,
+    })
 }
 
 fn games(
@@ -150,6 +273,14 @@ fn games(
     })
 }
 
+pub struct Context {
+    pub connection: Connection,
+}
+
+impl juniper::Context for Context {}
+
+pub struct Query;
+
 graphql_object!(Query: Context |&self| {
     field apiVersion() -> &str {
         "0.1"
@@ -157,12 +288,31 @@ graphql_object!(Query: Context |&self| {
     field game(&executor, id: String) -> FieldResult<Option<Game>> {
         game(executor, id)
     }
-    field games(&executor,
-    page: Option<i32>,
-    genre: Option<String>,
-    platform: Option<String>,
-    studio: Option<String>,
-) -> FieldResult<Games> {
+    field studio(&executor, id: String) -> FieldResult<Option<Studio>> {
+        studio(executor, id)
+    }
+    field editor(&executor, id: String) -> FieldResult<Option<Editor>> {
+        editor(executor, id)
+    }
+    field editors(
+        &executor,
+        page: Option<i32>,
+    ) -> FieldResult<Editors> {
+        editors(executor, page)
+    }
+    field studios(
+        &executor,
+        page: Option<i32>,
+    ) -> FieldResult<Studios> {
+        studios(executor, page)
+    }
+    field games(
+        &executor,
+        page: Option<i32>,
+        genre: Option<String>,
+        platform: Option<String>,
+        studio: Option<String>,
+    ) -> FieldResult<Games> {
         games(executor, page, genre, platform, studio)
     }
 });
