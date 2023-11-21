@@ -8,3 +8,8 @@ edition = "2021"
 [dependencies]
 juniper = "0.10"
 rusqlite = "0.30.0"
+actix-web = "4"
+actix-cors = "0.6.4"
+actix-web-lab = "0.20.1"
+env_logger = "0.10.1"
+log ="0.4.20"

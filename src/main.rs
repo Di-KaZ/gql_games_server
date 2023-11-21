@@ -1,30 +1,69 @@
-use juniper::Variables;
+//! Actix Web juniper example
+//!
+//! A simple example integrating juniper in Actix Web
 
+use std::{io, sync::Arc};
+
+use actix_cors::Cors;
+use actix_web::{
+    get, middleware, route,
+    web::{self, Data},
+    App, HttpResponse, HttpServer, Responder,
+};
+use actix_web_lab::respond::Html;
+use juniper::http::{graphiql::graphiql_source, GraphQLRequest};
+
+mod database;
 mod schema;
 
-fn main() {
-    let ctx = schema::Context {};
-    let schema = schema::create_schema();
+use crate::{
+    database::{get_connection, init_db},
+    schema::{create_schema, Context, Schema},
+};
 
-    let (res, _errors) = juniper::execute(
-        "query { game(id: \"123\") { id, name}}",
-        None,
-        &schema,
-        &Variables::new(),
-        &ctx,
-    )
-    .unwrap();
-    let test = res
-        .as_object_value()
-        .unwrap()
-        .get_field_value("game")
-        .unwrap()
-        .as_object_value()
-        .unwrap()
-        .get_field_value("name")
-        .unwrap()
-        .as_string_value()
-        .unwrap();
+/// GraphiQL playground UI
+#[get("/graphiql")]
+async fn graphql_playground() -> impl Responder {
+    Html(graphiql_source("/graphql"))
+}
 
-    print!("{}", test);
+/// GraphQL endpoint
+#[route("/graphql", method = "GET", method = "POST")]
+async fn graphql(st: web::Data<Schema>, data: web::Json<GraphQLRequest>) -> impl Responder {
+    let context = match get_connection() {
+        Ok(connection) => Context { connection },
+        Err(e) => panic!("{}", e),
+    };
+    let data = data.execute(&st, &context);
+    HttpResponse::Ok().json(data)
+}
+
+#[actix_web::main]
+async fn main() -> io::Result<()> {
+    if let Err(e) = init_db() {
+        panic!("{}", e);
+    }
+
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
+    // Create Juniper schema
+    let schema = Arc::new(create_schema());
+
+    log::info!("starting HTTP server on port 8080");
+    log::info!("GraphiQL playground: http://localhost:8080/graphiql");
+
+    // Start HTTP server
+    HttpServer::new(move || {
+        App::new()
+            .app_data(Data::from(schema.clone()))
+            .service(graphql)
+            .service(graphql_playground)
+            // the graphiql UI requires CORS to be enabled
+            .wrap(Cors::permissive())
+            .wrap(middleware::Logger::default())
+    })
+    .workers(2)
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }
