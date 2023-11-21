@@ -287,6 +287,7 @@ fn games(
     genre: Option<String>,
     platform: Option<String>,
     studio: Option<String>,
+    editor: Option<String>,
 ) -> FieldResult<Games> {
     let current_page = page.unwrap_or(0);
 
@@ -294,17 +295,22 @@ fn games(
 
     let mut statement = match connection.prepare(
         "
-    SELECT g.* FROM game g
+    SELECT DISTINCT g.* FROM game g
     LEFT JOIN game_studio_link gsl ON g.id = gsl.game_id
     LEFT JOIN studio s ON s.id = gsl.studio_id 
-    WHERE (s.name = ?1 OR ?1 IS NULL) 
-    LIMIT ?2 OFFSET ?3;",
+    LEFT JOIN game_editor_link gel ON g.id = gel.game_id
+    LEFT JOIN editor e ON e.id = gel.editor_id 
+    WHERE 
+        (s.name = ?1 OR ?1 IS NULL) AND
+        (e.name = ?2 OR ?2 IS NULL) 
+    LIMIT ?3 OFFSET ?4;
+",
     ) {
         Ok(stmt) => stmt,
         Err(e) => panic!("{}", e),
     };
 
-    let rows = statement.query_map(params![studio, 20, current_page * 20], |row| {
+    let rows = statement.query_map(params![studio, editor, 20, current_page * 20], |row| {
         let id: String = row.get(0)?;
         Ok(Game {
             id: id.to_owned(),
@@ -379,8 +385,9 @@ graphql_object!(Query: Context |&self| {
         genre: Option<String>,
         platform: Option<String>,
         studio: Option<String>,
+        editor: Option<String>,
     ) -> FieldResult<Games> {
-        games(executor, page, genre, platform, studio)
+        games(executor, page, genre, platform, studio, editor)
     }
 });
 
